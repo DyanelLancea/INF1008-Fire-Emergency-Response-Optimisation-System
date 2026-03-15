@@ -51,10 +51,16 @@ def main():
         try:
             station_id, distance, path = optimizer.find_nearest_fire_station(emergency_location)
             print(f"Emergency Location: {emergency_location}")
-            print(f"Nearest Fire Station: {station_id}")
-            print(f"Distance: {distance:.2f} km")
-            print(f"Path Length: {len(path)} nodes")
-            print(f"Path: {' -> '.join(path[:5])}..." if len(path) > 5 else f"Path: {' -> '.join(path)}")
+            # Explicit answers to key questions
+            print(f"Q1: Which fire station should respond to minimise travel distance?")
+            print(f"   A1: {station_id}")
+            print(f"Q2: What is the shortest route from that station to the incident?")
+            full_path_str = ' -> '.join(path)
+            preview = ' -> '.join(path[:5]) + (" -> ..." if len(path) > 5 else "")
+            print(f"   A2 (node sequence, preview): {preview}")
+            print(f"   A2 (full path): {full_path_str}")
+            print(f"Total travel distance along this route: {distance:.2f} km")
+            print(f"Path Length (number of nodes): {len(path)}")
         except Exception as e:
             print(f"Error: {e}")
             print("Note: This might occur if the dataset is not loaded.")

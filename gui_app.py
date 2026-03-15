@@ -45,10 +45,15 @@ def create_app() -> Flask:
             station_id = None
 
         # Compute route using existing optimizer methods
-        if station_id:
-            path, distance = optimizer.find_optimal_route((lat, lon), station_id)
-        else:
-            station_id, distance, path = optimizer.find_nearest_fire_station((lat, lon))
+        try:
+            if station_id:
+                path, distance = optimizer.find_optimal_route((lat, lon), station_id)
+            else:
+                station_id, distance, path = optimizer.find_nearest_fire_station((lat, lon))
+        except Exception as e:
+            # Surface a clear error instead of a 500 so the frontend
+            # can show a friendly message when no route is possible.
+            return jsonify({"error": str(e)}), 400
 
         coords_map = optimizer.graph_builder.get_node_coordinates()
         path_coords = [
