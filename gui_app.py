@@ -4,14 +4,40 @@ Flask GUI for Fire Emergency Response Optimisation System
 Provides a web interface with a clickable map:
 - Click anywhere on the San Francisco map to set an emergency ("Start Fire")
 - Optionally choose a specific fire station, or let the system pick the best one
-- See the optimized route drawn on the map
+- See the optimized route drawn on the map (follows actual streets via OSRM)
 """
 
+from typing import List, Tuple, Optional
+
+import requests
 from flask import Flask, render_template, request, jsonify
 from fire_response_optimizer import FireResponseOptimizer
 
 
 DATA_PATH = "data/fire_dept.csv"  # adjust if your CSV name is different
+
+OSRM_BASE = "https://router.project-osrm.org/route/v1/driving"
+
+
+def get_street_route(start: Tuple[float, float], end: Tuple[float, float]) -> Optional[List[dict]]:
+    """
+    Fetch road-following route from OSRM (Open Source Routing Machine).
+    Returns list of {lat, lon} dicts, or None if the request fails.
+    """
+    # OSRM expects lon,lat order
+    coords_str = f"{start[1]},{start[0]};{end[1]},{end[0]}"
+    url = f"{OSRM_BASE}/{coords_str}?overview=full&geometries=geojson"
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("code") != "Ok" or not data.get("routes"):
+            return None
+        # GeoJSON coordinates are [lon, lat]
+        coords = data["routes"][0]["geometry"]["coordinates"]
+        return [{"lat": lat, "lon": lon} for lon, lat in coords]
+    except Exception:
+        return None
 
 
 def create_app() -> Flask:
@@ -61,6 +87,14 @@ def create_app() -> Flask:
             for node in path
             if node in coords_map
         ]
+
+        # Fetch street-following route from OSRM for display (start -> end)
+        if len(path_coords) >= 2:
+            start = (path_coords[0]["lat"], path_coords[0]["lon"])
+            end = (path_coords[-1]["lat"], path_coords[-1]["lon"])
+            street_coords = get_street_route(start, end)
+            if street_coords:
+                path_coords = street_coords
 
         return jsonify(
             {
