@@ -19,7 +19,7 @@ def main():
     
     # Path to your dataset
     # Update this path to point to your downloaded dataset
-    data_path = "data/fire_department_calls.csv"
+    data_path = "data/fire_dept.csv"
     
     # Check if data directory exists, create if not
     os.makedirs("data", exist_ok=True)
