@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fire Emergency Response Optimisation</title>
+
+    <!-- Leaflet (map) -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+
+      #map {
+        height: 100vh;
+        width: 100%;
+      }
+
+      #panel {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        background: rgba(255, 255, 255, 0.95);
+        padding: 12px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+        z-index: 1000;
+        min-width: 280px;
+      }
+
+      #panel h2 {
+        margin: 0 0 8px 0;
+        font-size: 16px;
+      }
+
+      label {
+        font-size: 13px;
+      }
+
+      select,
+      button {
+        width: 100%;
+        margin-top: 8px;
+        padding: 8px;
+        font-size: 14px;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      .row {
+        margin-top: 10px;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="panel">
+      <h2>Fire Emergency Route Optimiser</h2>
+
+      <label for="stationSelect">Fire station:</label>
+      <select id="stationSelect">
+        <option value="auto" selected>Auto (best station)</option>
+        {% for s in stations %}
+          <option value="{{ s.id }}">{{ s.id }}</option>
+        {% endfor %}
+      </select>
+
+      <button id="go" type="button">Start Fire</button>
+
+      <div class="row">
+        <strong>Selected emergency:</strong>
+        <div id="emergencyCoords" style="margin-top: 4px; color: #333;">(click the map)</div>
+      </div>
+
+      <div class="row">
+        <strong>Result:</strong>
+        <div id="resultText" style="margin-top: 4px; color: #333;"></div>
+      </div>
+
+      <div class="row">
+        <strong>Route note:</strong>
+        <div id="routeNote" style="margin-top: 4px; color: #333;">(select an emergency, then press Start Fire)</div>
+      </div>
+    </div>
+
+    <div id="map"></div>
+
+    <script>
+      // Stations injected from Flask:
+      const stations = {{ stations | tojson }};
+
+      // Keep track of the selected emergency coordinates:
+      let selectedLatLng = null;
+      let emergencyMarker = null;
+      let routeLine = null;
+      let assignedCircle = null;
+
+      const stationById = {};
+      for (const s of stations) {
+        stationById[s.id] = { lat: s.lat, lon: s.lon };
+      }
+
+      // Map setup (SF center by default):
+      const map = L.map("map").setView([37.7749, -122.4194], 12);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      }).addTo(map);
+
+      // Add fire station markers:
+      for (const s of stations) {
+        L.marker([s.lat, s.lon])
+          .addTo(map)
+          .bindPopup(`Fire Station: ${s.id}`);
+      }
+
+      map.on("click", (e) => {
+        selectedLatLng = [e.latlng.lat, e.latlng.lng];
+        document.getElementById("emergencyCoords").textContent =
+          `${selectedLatLng[0].toFixed(5)}, ${selectedLatLng[1].toFixed(5)}`;
+
+        if (emergencyMarker) {
+          map.removeLayer(emergencyMarker);
+        }
+        emergencyMarker = L.marker(selectedLatLng).addTo(map).bindPopup("Emergency").openPopup();
+      });
+
+      async function computeRoute() {
+        if (!selectedLatLng) {
+          document.getElementById("routeNote").textContent = "Click the map to choose an emergency location first.";
+          return;
+        }
+
+        const goBtn = document.getElementById("go");
+        goBtn.disabled = true;
+        goBtn.textContent = "Calculating...";
+
+        const stationId = document.getElementById("stationSelect").value;
+        const payload = {
+          lat: selectedLatLng[0],
+          lon: selectedLatLng[1],
+          station_id: stationId === "auto" ? "auto" : stationId,
+        };
+
+        try {
+          const resp = await fetch("/route", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          const data = await resp.json();
+
+          if (!resp.ok) {
+            document.getElementById("resultText").style.color = "#b00020";
+            document.getElementById("resultText").textContent =
+              data.error || "Error calculating route.";
+            document.getElementById("routeNote").textContent = "No route could be computed.";
+            return;
+          }
+
+          // Update UI:
+          const dijkstraStation = data.station_id ?? "(unknown)";
+          const dijkstraDistKm =
+            typeof data.distance_km === "number" ? data.distance_km : NaN;
+
+          const straightStation = data.straight_station_id ?? "(unknown)";
+          const straightDistKm =
+            typeof data.straight_distance_km === "number"
+              ? data.straight_distance_km
+              : NaN;
+
+          const requestedText =
+            stationId === "auto" ? "Auto (best station)" : `Requested: ${stationId}`;
+
+          // Highlight assigned station
+          if (assignedCircle) {
+            map.removeLayer(assignedCircle);
+            assignedCircle = null;
+          }
+          if (stationById[dijkstraStation]) {
+            assignedCircle = L.circleMarker([stationById[dijkstraStation].lat, stationById[dijkstraStation].lon], {
+              radius: 14,
+              color: "blue",
+              fillColor: "blue",
+              fillOpacity: 0.35,
+              weight: 2,
+            }).addTo(map);
+          }
+
+          document.getElementById("resultText").style.color = "#333";
+          document.getElementById("resultText").textContent =
+            `${requestedText} | Dijkstra: ${dijkstraStation} | ${Number.isFinite(dijkstraDistKm) ? dijkstraDistKm.toFixed(2) : "N/A"} km` +
+            ` | Straight-line: ${straightStation} | ${Number.isFinite(straightDistKm) ? straightDistKm.toFixed(2) : "N/A"} km`;
+
+          // Remove old route line:
+          if (routeLine) {
+            map.removeLayer(routeLine);
+            routeLine = null;
+          }
+
+          // Draw returned route geometry:
+          const coords = data.path_coords || [];
+          if (coords.length >= 2) {
+            const latLngs = coords.map((c) => [c.lat, c.lon]);
+            routeLine = L.polyline(latLngs, { color: "red", weight: 4 }).addTo(map);
+            map.fitBounds(routeLine.getBounds(), { padding: [20, 20] });
+          } else {
+            document.getElementById("resultText").textContent += " (No multi-point route to draw.)";
+          }
+
+          // Clarify route source
+          const usedOsrm = data.used_osrm === true;
+          document.getElementById("routeNote").textContent = usedOsrm
+            ? "Red line follows OSRM street geometry (when available)."
+            : "Red line follows the Dijkstra node path (OSRM route unavailable).";
+        } catch (err) {
+          document.getElementById("resultText").style.color = "#b00020";
+          document.getElementById("resultText").textContent = "Network/server error. See console for details.";
+          document.getElementById("routeNote").textContent = "Could not reach the server.";
+          console.error(err);
+        } finally {
+          goBtn.disabled = false;
+          goBtn.textContent = "Start Fire";
+        }
+      }
+
+      document.getElementById("go").addEventListener("click", computeRoute);
+    </script>
+  </body>
+</html>
+

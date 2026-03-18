@@ -46,20 +46,25 @@ def main():
         # Example 1: Find optimal route for a specific emergency
         print("Example 1: Finding optimal route for an emergency")
         print("-" * 60)
-        emergency_location = (37.7749, -122.4194)  # San Francisco coordinates
+        # Pick an incident location directly from the dataset we loaded.
+        # Each entry in optimizer.emergency_locations is: (lat, lon, call_id)
+        emergency_location = optimizer.emergency_locations[0][:2]
         
         try:
-            station_id, distance, path = optimizer.find_nearest_fire_station(emergency_location)
+            dijkstra_station_id, dijkstra_distance, path = optimizer.find_nearest_fire_station(emergency_location)
+            straight_station_id, straight_distance = optimizer.find_nearest_fire_station_straight_line(emergency_location)
             print(f"Emergency Location: {emergency_location}")
             # Explicit answers to key questions
             print(f"Q1: Which fire station should respond to minimise travel distance?")
-            print(f"   A1: {station_id}")
+            print(f"   A1 (Dijkstra): {dijkstra_station_id}")
+            print(f"   Straight-line nearest (for comparison): {straight_station_id}")
             print(f"Q2: What is the shortest route from that station to the incident?")
             full_path_str = ' -> '.join(path)
             preview = ' -> '.join(path[:5]) + (" -> ..." if len(path) > 5 else "")
             print(f"   A2 (node sequence, preview): {preview}")
             print(f"   A2 (full path): {full_path_str}")
-            print(f"Total travel distance along this route: {distance:.2f} km")
+            print(f"Total travel distance along this route (Dijkstra): {dijkstra_distance:.2f} km")
+            print(f"Straight-line distance to nearest station: {straight_distance:.2f} km")
             print(f"Path Length (number of nodes): {len(path)}")
         except Exception as e:
             print(f"Error: {e}")
@@ -72,9 +77,9 @@ def main():
         print("Example 2: Optimizing routes for multiple emergencies")
         print("-" * 60)
         emergency_locations = [
-            (37.7849, -122.4094),
-            (37.7649, -122.4294),
-            (37.7549, -122.4394),
+            optimizer.emergency_locations[0][:2],
+            optimizer.emergency_locations[33][:2],
+            optimizer.emergency_locations[66][:2],
         ]
         
         results = optimizer.optimize_multiple_emergencies(emergency_locations)
@@ -84,6 +89,7 @@ def main():
                 print(f"  Location: {result['location']}")
                 print(f"  Assigned Station: {result['assigned_station']}")
                 print(f"  Distance: {result['distance_km']:.2f} km")
+                print(f"  Straight-line Nearest: {result['straight_station_id']} ({result['straight_distance_km']:.2f} km)")
                 print(f"  Path Length: {result['path_length']} nodes")
             else:
                 print(f"{emergency_id}: Error - {result['error']}")

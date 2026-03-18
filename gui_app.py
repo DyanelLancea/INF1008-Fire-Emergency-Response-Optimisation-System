@@ -70,6 +70,10 @@ def create_app() -> Flask:
         if station_id == "auto":
             station_id = None
 
+        # Assignment requirement: compare nearest station by
+        # straight-line distance vs nearest by Dijkstra shortest path.
+        straight_station_id, straight_distance = optimizer.find_nearest_fire_station_straight_line((lat, lon))
+
         # Compute route using existing optimizer methods
         try:
             if station_id:
@@ -88,6 +92,8 @@ def create_app() -> Flask:
             if node in coords_map
         ]
 
+        used_osrm = False
+
         # Fetch street-following route from OSRM for display (start -> end)
         if len(path_coords) >= 2:
             start = (path_coords[0]["lat"], path_coords[0]["lon"])
@@ -95,6 +101,7 @@ def create_app() -> Flask:
             street_coords = get_street_route(start, end)
             if street_coords:
                 path_coords = street_coords
+                used_osrm = True
 
         return jsonify(
             {
@@ -102,6 +109,9 @@ def create_app() -> Flask:
                 "distance_km": distance,
                 "path": path,
                 "path_coords": path_coords,
+                "straight_station_id": straight_station_id,
+                "straight_distance_km": straight_distance,
+                "used_osrm": used_osrm,
             }
         )
 

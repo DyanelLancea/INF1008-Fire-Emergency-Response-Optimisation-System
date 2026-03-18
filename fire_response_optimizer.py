@@ -141,6 +141,31 @@ class FireResponseOptimizer:
         )
         
         return station_id, distance, path
+
+    def find_nearest_fire_station_straight_line(
+        self, emergency_location: Tuple[float, float]
+    ) -> Tuple[str, float]:
+        """
+        Find the nearest fire station using straight-line distance (geodesic),
+        i.e., without running Dijkstra on the graph.
+        """
+        if not self.fire_stations:
+            if self.dijkstra is None:
+                self.initialize()
+
+        best_station = None
+        best_distance = float("inf")
+
+        for station_id, station_coords in self.fire_stations.items():
+            dist = self.graph_builder.calculate_distance(emergency_location, station_coords)
+            if dist < best_distance:
+                best_distance = dist
+                best_station = station_id
+
+        if best_station is None:
+            raise ValueError("No fire stations available")
+
+        return best_station, best_distance
     
     def optimize_multiple_emergencies(self, emergency_locations: List[Tuple[float, float]]) -> Dict:
         """
@@ -157,10 +182,13 @@ class FireResponseOptimizer:
         for i, location in enumerate(emergency_locations):
             try:
                 station_id, distance, path = self.find_nearest_fire_station(location)
+                straight_station_id, straight_distance = self.find_nearest_fire_station_straight_line(location)
                 results[f"emergency_{i+1}"] = {
                     'location': location,
                     'assigned_station': station_id,
                     'distance_km': distance,
+                    'straight_station_id': straight_station_id,
+                    'straight_distance_km': straight_distance,
                     'path': path,
                     'path_length': len(path)
                 }

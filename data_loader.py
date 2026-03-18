@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 from typing import List, Tuple, Dict, Optional
 import os
+import re
 
 
 class FireDepartmentDataLoader:
@@ -40,7 +41,8 @@ class FireDepartmentDataLoader:
             )
         
         print(f"Loading data from {self.data_path}...")
-        self.df = pd.read_csv(self.data_path)
+        # low_memory=False avoids pandas DtypeWarning for mixed-type columns.
+        self.df = pd.read_csv(self.data_path, low_memory=False)
         print(f"Loaded {len(self.df)} records")
         
         return self.df
@@ -70,8 +72,57 @@ class FireDepartmentDataLoader:
                 lon_col = col
         
         if lat_col is None or lon_col is None:
-            # If coordinates not found, create sample locations
-            print("Warning: Latitude/Longitude columns not found. Using sample data.")
+            # Many Kaggle exports store coordinates inside a single text column.
+            # Example: "(37.7765408927183, -122.417501464907)"
+            if "Location" in self.df.columns:
+                locations = []
+
+                call_id_col = None
+                for col in ['Call Number', 'CallNumber', 'Incident Number', 'id']:
+                    if col in self.df.columns:
+                        call_id_col = col
+                        break
+                row_id_col = "RowID" if "RowID" in self.df.columns else None
+
+                # Avoid scanning the entire dataset when a limit is provided.
+                # If parsing fails for some rows, scanning extra rows increases the chance
+                # of reaching the requested number of emergencies.
+                max_scan = len(self.df) if limit is None else min(len(self.df), limit * 20)
+                candidate_df = self.df.head(max_scan)
+
+                # Assignment requirement: filter only fire incidents.
+                # In this dataset, `CallTypeGroup` appears to be empty, so use `CallType`.
+                if "CallType" in self.df.columns:
+                    fire_mask = candidate_df["CallType"].astype(str).str.contains(
+                        "Fire", case=False, na=False
+                    )
+                    if fire_mask.any():
+                        candidate_df = candidate_df[fire_mask]
+
+                for idx, row in candidate_df.iterrows():
+                    parsed = self._parse_lat_lon_from_location(row.get("Location"))
+                    if parsed is None:
+                        continue
+
+                    lat, lon = parsed
+                    base_call_id = str(row[call_id_col]) if call_id_col else "call"
+                    unique_suffix = str(row[row_id_col]) if row_id_col else str(idx)
+                    # Node IDs must be unique; otherwise graph nodes get overwritten.
+                    call_id = f"{base_call_id}_{unique_suffix}"
+                    locations.append((lat, lon, call_id))
+
+                    if limit is not None and len(locations) >= limit:
+                        break
+
+                # If we couldn't parse enough rows, fall back to sample locations.
+                if limit is not None and len(locations) < limit:
+                    remaining = limit - len(locations)
+                    locations.extend(self._create_sample_locations(remaining))
+
+                return locations
+
+            # If the dataset doesn't contain coordinates anywhere, create sample locations.
+            print("Warning: Latitude/Longitude columns not found (and Location parsing failed). Using sample data.")
             return self._create_sample_locations(limit)
         
         # Filter out rows with missing coordinates
@@ -91,10 +142,33 @@ class FireDepartmentDataLoader:
         for idx, row in valid_data.iterrows():
             lat = row[lat_col]
             lon = row[lon_col]
-            call_id = str(row[call_id_col]) if call_id_col else f"call_{idx}"
+            base_call_id = str(row[call_id_col]) if call_id_col else "call"
+            unique_suffix = str(row["RowID"]) if "RowID" in self.df.columns else str(idx)
+            # Node IDs must be unique; otherwise graph nodes get overwritten.
+            call_id = f"{base_call_id}_{unique_suffix}"
             locations.append((lat, lon, call_id))
         
         return locations
+
+    def _parse_lat_lon_from_location(self, location_value) -> Optional[Tuple[float, float]]:
+        """
+        Parse "(lat, lon)" style coordinate strings from the dataset's "Location" column.
+        Returns (lat, lon) as floats, or None if parsing fails.
+        """
+        if location_value is None or (isinstance(location_value, float) and np.isnan(location_value)):
+            return None
+
+        s = str(location_value)
+        # Capture two floats separated by a comma, optionally wrapped in parentheses.
+        # Example match: (37.7765408927183, -122.417501464907)
+        match = re.search(
+            r"\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\)",
+            s,
+        )
+        if not match:
+            return None
+
+        return float(match.group(1)), float(match.group(2))
     
     def get_fire_stations(self) -> Dict[str, Tuple[float, float]]:
         """

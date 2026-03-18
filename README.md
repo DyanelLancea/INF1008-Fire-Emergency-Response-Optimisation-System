@@ -40,7 +40,7 @@ pip install -r requirements.txt
 from fire_response_optimizer import FireResponseOptimizer
 
 # Initialize the optimizer
-optimizer = FireResponseOptimizer('data/fire_department_calls.csv')
+optimizer = FireResponseOptimizer('data/fire_dept.csv')
 
 # Find optimal route for an emergency
 route, distance = optimizer.find_optimal_route(
@@ -58,5 +58,7 @@ route, distance = optimizer.find_optimal_route(
 ├── data_loader.py           # Loads and processes fire department calls
 ├── fire_response_optimizer.py  # Main optimization system
 ├── main.py                  # Example usage
+├── gui_app.py               # Flask GUI (web map)
+└── templates/              # Flask templates (e.g. index.html)
 └── requirements.txt
 ```

@@ -42,6 +42,10 @@ data/*.json
 route_map.html
 multiple_routes_map.html
 
+# Keep the Flask GUI template in the repo
+!templates/
+!templates/index.html
+
 # OS
 .DS_Store
 Thumbs.db
