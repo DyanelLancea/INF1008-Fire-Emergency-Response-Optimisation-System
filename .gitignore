@@ -29,6 +29,7 @@ data/*.xlsx
 data/*.json
 *.db
 *.sqlite
+**/fire_dept.csv
 
 # IDE
 .vscode/
